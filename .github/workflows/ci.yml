@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - run: python -m pytest -q
+      - name: report generation is self-contained
+        run: |
+          python -m agentprof report examples/demo-session.jsonl -o /tmp/r.html
+          python - <<'PY'
+          html = open('/tmp/r.html').read()
+          assert 'AgentProf.render' in html, 'viewer missing'
+          assert 'src="http' not in html, 'report must not load remote assets'
+          print('report ok: %d KB' % (len(html) / 1024))
+          PY
+      - run: python tools/build_site.py

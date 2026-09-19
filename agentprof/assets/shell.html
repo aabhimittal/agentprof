@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>__CSS__</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand"><span class="dot"></span><h1>agentprof</h1></div>
+      <div class="sub">__SUB__</div>
+    </div>
+    <button class="btn" id="theme">theme</button>
+  </header>
+  <main id="app"></main>
+  <p class="note">Generated locally by <a href="https://github.com/aabhimittal/agentprof">agentprof</a> __VERSION__ &mdash; this file contains no network calls and no telemetry.</p>
+</div>
+<script>window.AGENTPROF_PROFILE = __DATA__;</script>
+<script>__JS__</script>
+<script>
+AgentProf.restoreTheme();
+AgentProf.render(window.AGENTPROF_PROFILE, document.getElementById('app'));
+document.getElementById('theme').onclick = function () {
+  AgentProf.theme();
+  AgentProf.render(window.AGENTPROF_PROFILE, document.getElementById('app'));
+};
+</script>
+</body>
+</html>

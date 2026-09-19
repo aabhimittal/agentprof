@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+site/
+agentprof-report.html
+agentprof-demo.html
+agentprof.json
+agentprof-run.ndjson
+.vercel
