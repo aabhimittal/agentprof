@@ -38,12 +38,13 @@
       <p>An agent task is 50&ndash;200 model calls, and most of every call is context you already paid for.
       <strong>agentprof</strong> profiles a run and attributes the bill: which tool result was re-sent 80 times,
       which prefix break cost you a cache, where the money actually went.</p>
-      <pre class="cmd"><b>pipx run agentprof report --open</b>          <span style="color:var(--muted)"># newest Claude Code session in this repo</span>
-<b>agentprof proxy --out run.ndjson</b>          <span style="color:var(--muted)"># record any agent on the Messages API</span>
-<b>agentprof report run.ndjson</b>               <span style="color:var(--muted)"># one self-contained HTML file</span></pre>
+      <pre class="cmd"><b>agentprof report --open</b>          <span style="color:var(--muted)"># newest Claude Code session in this repo</span>
+<b>agentprof proxy --out run.ndjson</b>  <span style="color:var(--muted)"># record any agent on the Messages API</span>
+<b>agentprof report run.ndjson</b>       <span style="color:var(--muted)"># one self-contained HTML file</span>
+<span style="color:var(--muted)">pipx install git+https://github.com/aabhimittal/agentprof</span></pre>
       <div class="links">
         <a href="https://github.com/aabhimittal/agentprof">GitHub</a>
-        <a href="https://pypi.org/project/agentprof/">PyPI</a>
+        <a href="https://github.com/aabhimittal/agentprof/blob/main/docs/DEPLOY.md">Self-host</a>
         <a href="https://github.com/aabhimittal/agentprof#how-the-numbers-are-computed">How the numbers work</a>
       </div>
     </div>

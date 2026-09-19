@@ -26,16 +26,10 @@ Existing observability tools (Langfuse and friends) answer *what happened*. agen
 ## Quickstart
 
 ```bash
-pipx run agentprof report --open       # profiles the newest Claude Code session for this directory
-```
+pipx install git+https://github.com/aabhimittal/agentprof    # PyPI release pending
 
-or install it:
-
-```bash
-pip install agentprof
-
-agentprof summary                      # numbers in the terminal
-agentprof report -o report.html        # self-contained HTML report
+agentprof report --open                # profiles the newest Claude Code session for this directory
+agentprof summary                      # the same numbers, in the terminal
 agentprof export -o agentprof.json     # profile JSON for the web viewer
 ```
 
@@ -148,6 +142,8 @@ python3 -m http.server -d site  # http://localhost:8000
 - **GitHub Pages** — `.github/workflows/pages.yml` builds and deploys on push to `main`
   (enable Pages → *Source: GitHub Actions* once, in repository settings).
 - **Vercel** — `vercel.json` is committed; import the repo, no configuration needed.
+
+Step-by-step, including what each target needs you to click once: [docs/DEPLOY.md](docs/DEPLOY.md).
 - **Hugging Face Space** — `.github/workflows/hf-space.yml` pushes `site/` to a static Space when an
   `HF_TOKEN` secret is present.
 
@@ -160,7 +156,7 @@ python3 tools/shots.py          # regenerate docs/images with headless Chromium
 ```
 
 No runtime dependencies, Python 3.9+, stdlib only — that is a deliberate constraint, so that
-`pipx run agentprof` is always faster than reading the docs.
+installing agentprof is always faster than reading its docs.
 
 ## License
 
