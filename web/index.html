@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentprof - flamegraph for agent token spend</title>
+<meta name="description" content="Profile what an agent run actually spent. Flamegraph of token attribution, prefix-cache analysis and waste attribution. Local-only, no backend, no account.">
+<meta property="og:title" content="agentprof">
+<meta property="og:description" content="Flamegraph for agent token spend. Local-only, no backend, no account.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='4' y='0' rx='1' fill='%23b4410a'/><rect width='11' height='4' y='6' rx='1' fill='%232f6fb0'/><rect width='6' height='4' y='12' rx='1' fill='%23d07c2a'/></svg>">
+<link rel="stylesheet" href="core.css">
+<style>
+  .hero { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; align-items: start; margin-bottom: 22px; }
+  .hero p { margin: 8px 0 0; color: var(--muted); max-width: 60ch; }
+  pre.cmd { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto;
+            font-family: var(--mono); font-size: 12.5px; margin: 12px 0 0; }
+  pre.cmd b { color: var(--accent); font-weight: 600; }
+  .drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 16px; text-align: center; color: var(--muted); font-size: 13px; }
+  .drop.over { border-color: var(--accent); color: var(--ink); }
+  .drop input { display: none; }
+  .links { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; margin-top: 12px; }
+  .banner { font-size: 12.5px; color: var(--muted); border-left: 2px solid var(--accent); padding-left: 10px; margin: 0 0 18px; }
+  @media (max-width: 800px) { .hero { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand"><span class="dot"></span><h1>agentprof</h1></div>
+      <div class="sub">flamegraph for agent token spend &mdash; local-only, no backend, no account</div>
+    </div>
+    <button class="btn" id="theme">theme</button>
+  </header>
+
+  <section class="hero">
+    <div>
+      <p>An agent task is 50&ndash;200 model calls, and most of every call is context you already paid for.
+      <strong>agentprof</strong> profiles a run and attributes the bill: which tool result was re-sent 80 times,
+      which prefix break cost you a cache, where the money actually went.</p>
+      <pre class="cmd"><b>pipx run agentprof report --open</b>          <span style="color:var(--muted)"># newest Claude Code session in this repo</span>
+<b>agentprof proxy --out run.ndjson</b>          <span style="color:var(--muted)"># record any agent on the Messages API</span>
+<b>agentprof report run.ndjson</b>               <span style="color:var(--muted)"># one self-contained HTML file</span></pre>
+      <div class="links">
+        <a href="https://github.com/aabhimittal/agentprof">GitHub</a>
+        <a href="https://pypi.org/project/agentprof/">PyPI</a>
+        <a href="https://github.com/aabhimittal/agentprof#how-the-numbers-are-computed">How the numbers work</a>
+      </div>
+    </div>
+    <div>
+      <div class="drop" id="drop">
+        <b>Drop an <code>agentprof.json</code> here</b><br>
+        produced by <code>agentprof export</code><br><br>
+        <button class="btn" id="pick">choose file</button>
+        <button class="btn" id="demo">back to demo</button>
+        <input type="file" id="file" accept=".json,application/json">
+      </div>
+      <p class="note">Parsing happens in this tab. Nothing is uploaded, and the page makes no network requests after load.</p>
+    </div>
+  </section>
+
+  <p class="banner" id="banner">Showing a synthetic demo run: a coding agent fixing one failing test in 35 model calls.</p>
+  <main id="app"></main>
+  <p class="note">agentprof is MIT-licensed. Cost model and estimates are documented in the
+    <a href="https://github.com/aabhimittal/agentprof#how-the-numbers-are-computed">README</a>.</p>
+</div>
+<script src="core.js"></script>
+<script>
+(function () {
+  var app = document.getElementById('app'), banner = document.getElementById('banner'), current = null;
+  AgentProf.restoreTheme();
+  function show(p, note) {
+    current = p;
+    banner.textContent = note;
+    AgentProf.render(p, app);
+  }
+  document.getElementById('theme').onclick = function () {
+    AgentProf.theme();
+    if (current) AgentProf.render(current, app);
+  };
+  function loadDemo() {
+    fetch('demo.json').then(function (r) { return r.json(); }).then(function (p) {
+      show(p, 'Showing a synthetic demo run: a coding agent fixing one failing test in 35 model calls.');
+    }).catch(function (e) {
+      banner.textContent = 'Could not load the demo profile (' + e + '). Serve this directory over HTTP.';
+    });
+  }
+  function loadFile(f) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      try {
+        var p = JSON.parse(fr.result);
+        if (!p.tree || !p.totals) throw new Error('not an agentprof profile - run: agentprof export -o agentprof.json');
+        show(p, 'Showing ' + f.name + ' (' + (f.size / 1024).toFixed(0) + ' KB), loaded in this tab.');
+      } catch (e) { banner.textContent = 'Could not read that file: ' + e.message; }
+    };
+    fr.readAsText(f);
+  }
+  var drop = document.getElementById('drop'), input = document.getElementById('file');
+  document.getElementById('pick').onclick = function () { input.click(); };
+  document.getElementById('demo').onclick = loadDemo;
+  input.onchange = function () { if (input.files[0]) loadFile(input.files[0]); };
+  ['dragenter', 'dragover'].forEach(function (k) {
+    drop.addEventListener(k, function (e) { e.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (k) {
+    drop.addEventListener(k, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  loadDemo();
+})();
+</script>
+</body>
+</html>

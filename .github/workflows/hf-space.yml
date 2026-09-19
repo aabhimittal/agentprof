@@ -1,0 +1,48 @@
+name: hf-space
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      space:
+        description: "Hugging Face Space id (owner/name)"
+        required: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      SPACE: ${{ github.event.inputs.space || vars.HF_SPACE || 'abhimittal/agentprof' }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: gate
+        name: Check for an HF token
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "HF_TOKEN secret is not set - skipping the Space sync."
+          else
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.has == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.gate.outputs.has == 'true'
+        run: |
+          python tools/build_site.py
+          cp web/space-README.md site/README.md
+      - if: steps.gate.outputs.has == 'true'
+        run: |
+          pip install -q huggingface_hub
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          space = os.environ["SPACE"]
+          api.create_repo(space, repo_type="space", space_sdk="static", exist_ok=True)
+          api.upload_folder(folder_path="site", repo_id=space, repo_type="space",
+                            commit_message="sync agentprof viewer from GitHub")
+          print("https://huggingface.co/spaces/" + space)
+          PY
