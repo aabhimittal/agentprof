@@ -16,7 +16,7 @@ Token counts per block are estimated at ~4 bytes/token; usage totals are exact.
 """
 from .findings import findings as _findings
 from .model import TOKENS_PER_BYTE
-from .pricing import rates
+from .pricing import UNPRICED, rates
 
 MAX_GAP_S = 600.0
 
@@ -132,10 +132,12 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
             w = waste.setdefault(
                 b["h"],
                 {"label": b["label"], "kind": b["kind"], "bytes": b["bytes"], "n": 0,
-                 "cost": 0.0, "repeat_cost": 0.0, "cached_cost": 0.0, "tok": end - offset,
+                 "cost": 0.0, "repeat_cost": 0.0, "cached_cost": 0.0, "repeat_tok": 0, "tok": end - offset,
                  "origin": b["origin"], "first_step": idx, "dup_max": 0, "steps": 0},
             )
             w["n"] += 1
+            if w["n"] > 1:
+                w["repeat_tok"] += end - offset
             per_call[b["h"]] = per_call.get(b["h"], 0) + 1
             w["cost"] += c
             if w["n"] > 1:
@@ -185,6 +187,11 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
 
     _rollup(root)
 
+    # An unpriced run (self-hosted, or a model we have no rates for) still has
+    # exact token counts, so every ranking below falls back to tokens.
+    unpriced = sorted(m for m in {e["model"] for e in llms} if not rates(m)["priced"])
+    priced = bool(totals["cost"] > 0)
+
     tool_names = {t["id"]: t for t in tools}
     for h, w in waste.items():
         w["h"] = h
@@ -202,7 +209,9 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
     # Blocks smaller than a line or two of text are noise in a ranking table -
     # they are still counted in the totals, just not listed.
     notable = [w for w in waste.values() if w["bytes"] >= min_bytes]
-    waste_list = sorted(notable, key=lambda w: -w["repeat_cost"])
+    key_repeat = (lambda w: -w["repeat_cost"]) if priced else (lambda w: -w["repeat_tok"])
+    key_total = (lambda w: -w["cost"]) if priced else (lambda w: -w["tok"] * w["n"])
+    waste_list = sorted(notable, key=key_repeat)
     repeated = [w for w in waste_list if w["n"] > 1][:max_waste]
 
     billed_total = totals["in"] + totals["cache_read"] + totals["cache_write"]
@@ -216,6 +225,7 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
         "duration_s": (max([e.get("t1") or 0 for e in llms + tools] or [0]) -
                        min([e.get("t0") or 0 for e in llms + tools] or [0])),
         "models": sorted({e["model"] for e in llms}),
+        "unpriced": unpriced,
     }
     totals_out = dict(
         totals,
@@ -237,22 +247,25 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
             sys_cost=sysnode["total"]["cost"],
             sub_cost=sub_cost,
             breaks=sum(1 for s in steps if s["broke"]),
+            resent_tok=sum(w["repeat_tok"] for w in waste.values()),
+            dup_tok=sum(w["repeat_tok"] for w in dup_blocks),
+            priced=priced,
         ),
         "tree": root,
         "steps": steps,
         "waste": repeated,
-        "top_cost": sorted(notable, key=lambda w: -w["cost"])[:max_waste],
-        "labels": _by_label(waste.values()),
+        "top_cost": sorted(notable, key=key_total)[:max_waste],
+        "labels": _by_label(waste.values(), priced=priced),
         "findings": _findings(totals_out, steps, list(waste.values()),
                               sysnode["total"]["cost"], sub_cost),
     }
 
 
-def _by_label(blocks, top=60):
-    """Attributed cost per context source, for run-to-run comparison."""
+def _by_label(blocks, top=60, priced=True):
+    """Attributed cost (or tokens, when the run is unpriced) per context source."""
     agg = {}
     for b in blocks:
-        agg[b["label"]] = agg.get(b["label"], 0.0) + b["cost"]
+        agg[b["label"]] = agg.get(b["label"], 0.0) + (b["cost"] if priced else b["tok"] * b["n"])
     pairs = sorted(agg.items(), key=lambda kv: -kv[1])[:top]
     return dict(pairs)
 

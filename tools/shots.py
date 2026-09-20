@@ -29,7 +29,8 @@ SHOT_PAGE = """<!doctype html><html lang=en><head><meta charset=utf-8>
 <script src="core.js"></script><script>
 var q = new URLSearchParams(location.search);
 if (q.get('theme')) document.documentElement.setAttribute('data-theme', q.get('theme'));
-fetch('demo.json').then(function(r){return r.json();}).then(function(p){
+var src = q.get('example') ? 'examples/' + q.get('example') + '.json' : 'demo.json';
+fetch(src).then(function(r){return r.json();}).then(function(p){
   AgentProf.render(p, document.getElementById('app'));
   var keep = (q.get('panels')||'').split(',').filter(String).map(Number);
   if (keep.length) {
@@ -95,7 +96,9 @@ def main():
     time.sleep(0.4)
     b, base = chrome(), "http://127.0.0.1:%d" % PORT
     print("shots:")
-    shoot(b, base + "/index.html", os.path.join(OUT, "hero.png"), 1340, 1220)
+    shoot(b, base + "/index.html", os.path.join(OUT, "hero.png"), 1340, 1420)
+    shoot(b, base + "/_shot.html?panels=0&stats=1&example=oss-selfhosted",
+          os.path.join(OUT, "unpriced.png"), 1280, 500)
     shoot(b, base + "/_shot.html?panels=0&stats=1", os.path.join(OUT, "findings.png"), 1280, 660)
     shoot(b, base + "/_shot.html?panels=1&theme=dark", os.path.join(OUT, "flamegraph.png"), 1280, 340)
     shoot(b, base + "/_shot.html?panels=2", os.path.join(OUT, "cache.png"), 1280, 400)

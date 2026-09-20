@@ -49,14 +49,22 @@
 
   function statRow(t, m) {
     var g = el("div", "stats");
+    var priced = t.priced !== false;
     function stat(k, v, n) { var s = el("div", "stat"); s.appendChild(el("div", "k", esc(k))); s.appendChild(el("div", "v", v)); if (n) s.appendChild(el("div", "n", n)); return s; }
-    g.appendChild(stat("run cost", usd(t.cost), t.calls + " model calls, " + (t.tools || 0) + " tool calls"));
+    if (priced) {
+      g.appendChild(stat("run cost", usd(t.cost), t.calls + " model calls, " + (t.tools || 0) + " tool calls"));
+    } else {
+      g.appendChild(stat("run cost", "unpriced",
+        "no rates for " + esc((m.unpriced || ["this model"])[0]) + " - pass --pricing"));
+    }
     g.appendChild(stat("billed input", tokens(t.billed_in), tokens(t.out) + " output tokens"));
     g.appendChild(stat("cache hit rate", pct(t.hit_rate), tokens(t.cache_write) + " written, " + tokens(t.cache_read) + " read"));
-    g.appendChild(stat("spent on re-sends", pct(t.resent_share), usd(t.resent_cost) + " billed more than once"));
+    g.appendChild(priced
+      ? stat("spent on re-sends", pct(t.resent_share), usd(t.resent_cost) + " billed more than once")
+      : stat("re-sent tokens", tokens(t.resent_tok || 0), "billed more than once"));
     if (t.dup_blocks) {
       g.appendChild(stat("duplicate copies", String(t.dup_blocks),
-        usd(t.dup_cost) + " on blocks sent twice in one request"));
+        (priced ? usd(t.dup_cost) : tokens(t.dup_tok || 0)) + " on blocks sent twice in one request"));
     }
     g.appendChild(stat("wall time", ms((m.duration_s || 0) * 1000), (m.models || []).join(", ")));
     return g;
@@ -72,7 +80,8 @@
     profile.findings.forEach(function (f) {
       var row = el("div", "finding " + f.level);
       var impact = f.usd > 0
-        ? "<span class='impact'>" + usd(f.usd) + " &middot; " + pct(f.share) + " of run</span>" : "";
+        ? "<span class='impact'>" + usd(f.usd) + " &middot; " + pct(f.share) + " of run</span>"
+        : (f.share > 0 ? "<span class='impact'>" + pct(f.share) + " of tokens</span>" : "");
       row.innerHTML = "<div class='fhead'><span class='sev'>" + esc(f.level) + "</span>" +
         "<b>" + esc(f.title) + "</b>" + impact + "</div>" +
         "<div class='fbody'>" + esc(f.detail) + "</div>";
@@ -129,7 +138,8 @@
     return out;
   }
   function flamePanel(profile) {
-    var panel = el("div", "panel"), metric = "cost", q = "", view = "merged";
+    var priced = profile.totals.priced !== false;
+    var panel = el("div", "panel"), metric = priced ? "cost" : "tok", q = "", view = "merged";
     var trees = { merged: mergeTree(profile.tree), calls: profile.tree };
     var zoom = trees[view];
     var head = el("div", "panel-head");
@@ -156,6 +166,7 @@
     ctl.appendChild(el("span", "sep", "&nbsp;"));
     Object.keys(METRICS).forEach(function (k) {
       var b = el("button", "btn", METRICS[k].label);
+      if (k === "cost" && !priced) b.title = "this run has no known prices - showing tokens";
       b.setAttribute("aria-pressed", String(k === metric));
       b.onclick = function () {
         metric = k;
@@ -337,20 +348,25 @@
     panel.appendChild(head);
     var tbl = el("table");
     panel.appendChild(tbl);
+    var priced = profile.totals.priced !== false;
     function fill() {
       var rows = profile[mode] || [];
+      var head = priced ? (mode === "waste" ? "cost of re-sends" : "total cost")
+                        : (mode === "waste" ? "tokens re-sent" : "tokens billed");
       tbl.innerHTML = "<tr><th>context block</th><th>type</th><th class='num'>copies in one request</th>" +
-        "<th class='num'>times billed</th><th class='num'>size</th><th class='num'>" +
-        (mode === "waste" ? "cost of re-sends" : "total cost") + "</th><th class='num'>% of run</th></tr>";
+        "<th class='num'>times billed</th><th class='num'>size</th><th class='num'>" + head +
+        "</th><th class='num'>% of run</th></tr>";
+      var totalRun = priced ? (profile.totals.cost || 1) : (profile.totals.billed_in || 1);
       rows.forEach(function (w) {
-        var c = mode === "waste" ? w.repeat_cost : w.cost;
+        var c = priced ? (mode === "waste" ? w.repeat_cost : w.cost)
+                       : (mode === "waste" ? (w.repeat_tok || 0) : w.tok * w.n);
         var r = el("tr");
         r.innerHTML = "<td class='name' title='" + esc(w.label) + "'>" + esc(w.label) + "</td>" +
           "<td><span class='pill'>" + esc(w.kind) + "</span></td>" +
           "<td class='num'>" + (w.dup_max > 1 ? "<b>" + w.dup_max + "</b>" : w.dup_max) + "</td>" +
           "<td class='num'>" + w.n + "</td><td class='num'>" + kb(w.bytes) + "</td>" +
-          "<td class='num'>" + usd(c) + "</td>" +
-          "<td class='num'>" + pct(c / (profile.totals.cost || 1)) + "</td>";
+          "<td class='num'>" + (priced ? usd(c) : tokens(c)) + "</td>" +
+          "<td class='num'>" + pct(c / totalRun) + "</td>";
         tbl.appendChild(r);
       });
       if (!rows.length) tbl.innerHTML = "<tr><td class='sub'>nothing re-sent more than once.</td></tr>";
