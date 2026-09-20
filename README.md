@@ -31,6 +31,7 @@ pipx install git+https://github.com/aabhimittal/agentprof    # PyPI release pend
 agentprof report --open                # profiles the newest Claude Code session for this directory
 agentprof summary                      # the same numbers, in the terminal
 agentprof export -o agentprof.json     # profile JSON for the web viewer
+agentprof compare before.json after.json   # did the change actually get cheaper?
 ```
 
 To profile *any* agent that talks to the Anthropic Messages API, put the recording proxy in front:
@@ -48,6 +49,23 @@ of inferred. It writes hashes, sizes and labels — never your prompt text — t
 
 ## What you get
 
+### Findings
+
+![findings](docs/images/findings.png)
+
+A profiler that stops at numbers leaves you to do the diagnosis. agentprof ranks what the run is
+paying for and says what to do about it — every finding carries the evidence that produced it:
+
+> **6 identical copies of the same content in a single request** — `Read(src/engine.py)` is 8.6 KB
+> and appears 6 times in one prompt, across 31 requests. $0.31, 38% of the run.
+
+The rules are deliberately few and each one is falsifiable from the profile: duplicate copies,
+blocks billed repeatedly, fixed-prefix overhead, low cache reuse, prefix breaks, oversized tool
+results, subagent share. A clean run produces an empty list. The dollar figures are what each issue
+*touches*, not a split of the bill — a token re-written after a cache break also belongs to the
+fixed-prefix total — so they can sum past 100%. Where one finding strictly contains another, the
+narrower one wins.
+
 ### Attribution flamegraph
 
 ![flamegraph](docs/images/flamegraph.png)
@@ -55,8 +73,16 @@ of inferred. It writes hashes, sizes and labels — never your prompt text — t
 Not a timeline — an *attribution* graph, like an allocation flamegraph. A frame's width is what the
 run spent **because of** that node, including every later re-send of the context it introduced.
 The `Read(src/engine.py)` frame is wide because that file kept being billed for the rest of the run,
-not because the read itself was slow. Switch the metric to **tokens** or **time**, click to zoom,
-type in the box to highlight.
+not because the read itself was slow.
+
+Two layouts, because they answer different questions:
+
+- **merged** (default) — identical work collapses into one frame, so nine scattered reads of the
+  same file become `Read(src/engine.py) ×9 ($0.207)`. This is the view that shows you the problem.
+- **by call** — one frame per call in run order, when you need to see the shape of the run itself.
+
+Switch the metric to **tokens** or **time**, click (or tab + Enter) to zoom, Escape to reset, type
+in the box to highlight.
 
 The `system + tools (inferred)` frame is usually the first surprise: in Claude Code sessions it is
 routinely 30–50% of the bill and is invisible in the transcript.
@@ -94,6 +120,8 @@ your context several times over, which no cache discount fixes.
   `cache_creation_input_tokens` at the write rate, the remainder at full input price. Each block's
   cost is the integral of that rate function over its span, charged back to whatever put it in the
   context.
+- **Findings are rule-based, not learned.** Each threshold is visible in
+  [`agentprof/findings.py`](agentprof/findings.py); none of them phone home or guess.
 - **Durations from transcripts are inferred** from the gaps between entries (one timestamp per
   entry is all a transcript has); gaps over 10 minutes are treated as idle, not latency. The proxy
   measures real request duration.

@@ -37,6 +37,7 @@
     host.innerHTML = "";
     var t = profile.totals, m = profile.meta || {};
     host.appendChild(statRow(t, m));
+    if ((profile.findings || []).length) host.appendChild(findingsPanel(profile));
     host.appendChild(flamePanel(profile));
     host.appendChild(cachePanel(profile));
     host.appendChild(wastePanel(profile));
@@ -53,16 +54,106 @@
     g.appendChild(stat("billed input", tokens(t.billed_in), tokens(t.out) + " output tokens"));
     g.appendChild(stat("cache hit rate", pct(t.hit_rate), tokens(t.cache_write) + " written, " + tokens(t.cache_read) + " read"));
     g.appendChild(stat("spent on re-sends", pct(t.resent_share), usd(t.resent_cost) + " billed more than once"));
+    if (t.dup_blocks) {
+      g.appendChild(stat("duplicate copies", String(t.dup_blocks),
+        usd(t.dup_cost) + " on blocks sent twice in one request"));
+    }
     g.appendChild(stat("wall time", ms((m.duration_s || 0) * 1000), (m.models || []).join(", ")));
     return g;
   }
 
+  /* ---------- findings ---------- */
+  function findingsPanel(profile) {
+    var panel = el("div", "panel");
+    panel.appendChild(el("div", "panel-head",
+      "<div><h2>What this run is paying for</h2>" +
+      "<div class='sub'>derived from the numbers below - each one carries its own evidence</div></div>"));
+    var list = el("div", "findings");
+    profile.findings.forEach(function (f) {
+      var row = el("div", "finding " + f.level);
+      var impact = f.usd > 0
+        ? "<span class='impact'>" + usd(f.usd) + " &middot; " + pct(f.share) + " of run</span>" : "";
+      row.innerHTML = "<div class='fhead'><span class='sev'>" + esc(f.level) + "</span>" +
+        "<b>" + esc(f.title) + "</b>" + impact + "</div>" +
+        "<div class='fbody'>" + esc(f.detail) + "</div>";
+      list.appendChild(row);
+    });
+    panel.appendChild(list);
+    panel.appendChild(el("p", "note",
+      "Figures are what each issue touches, not a split of the bill - a token re-written after a " +
+      "cache break also counts toward the fixed-prefix total, so these can add up to more than 100%."));
+    return panel;
+  }
+
   /* ---------- flamegraph ---------- */
+  /* Merged view: identical work is scattered across steps (one Read frame per
+     step), so the thing that actually costs money is invisible as a frame.
+     Merging siblings by name - with every model call treated as one key -
+     collapses those into a single frame whose width is the real total. */
+  function mergeKey(n) { return n.kind === "llm" ? "model calls" : n.name; }
+
+  function mergeTree(node) {
+    var out = {
+      id: "m:" + node.id, name: node.name, kind: node.kind, meta: node.meta || {},
+      self: node.self, total: node.total, children: [], sites: node.sites || 1
+    };
+    var order = [], groups = {};
+    (node.children || []).forEach(function (c) {
+      var k = mergeKey(c), g = groups[k];
+      if (!g) {
+        g = groups[k] = {
+          id: "g:" + k, name: k, kind: c.kind, sites: 0, children: [], meta: {},
+          self: { cost: 0, tok: 0, ms: 0 }, total: { cost: 0, tok: 0, ms: 0 }
+        };
+        order.push(g);
+      }
+      g.sites++;
+      ["cost", "tok", "ms"].forEach(function (mm) {
+        g.self[mm] += c.self[mm];
+        g.total[mm] += c.total[mm];
+      });
+      (c.children || []).forEach(function (gc) { g.children.push(gc); });
+      var cm = c.meta || {};
+      if (cm.billed) g.meta.billed = (g.meta.billed || 0) + cm.billed;
+      if (cm.copies) g.meta.copies = Math.max(g.meta.copies || 0, cm.copies);
+      if (cm.bytes) g.meta.bytes = Math.max(g.meta.bytes || 0, cm.bytes);
+      if (cm.model) g.meta.model = cm.model;
+    });
+    order.forEach(function (g) {
+      var merged = mergeTree(g);
+      merged.name = g.sites > 1 ? g.name + " \u00d7" + g.sites : g.name;
+      merged.sites = g.sites;
+      out.children.push(merged);
+    });
+    out.children.sort(function (a, b) { return b.total.cost - a.total.cost; });
+    return out;
+  }
   function flamePanel(profile) {
-    var panel = el("div", "panel"), metric = "cost", zoom = profile.tree, q = "";
+    var panel = el("div", "panel"), metric = "cost", q = "", view = "merged";
+    var trees = { merged: mergeTree(profile.tree), calls: profile.tree };
+    var zoom = trees[view];
     var head = el("div", "panel-head");
-    var title = el("div", "", "<h2>Attribution flamegraph</h2><div class='sub'>width = what the run spent <em>because of</em> that node, including every later re-send</div>");
+    var title = el("div", "", "<h2>Attribution flamegraph</h2><div class='sub' id='flamesub'></div>");
     var ctl = el("div", "controls");
+    var VIEWS = {
+      merged: "identical work merged - one frame per source, width = its whole share of the bill",
+      calls: "one frame per call, in run order - width = what the run spent <em>because of</em> that node"
+    };
+    [["merged", "merged"], ["calls", "by call"]].forEach(function (p2) {
+      var b = el("button", "btn", p2[1]);
+      b.setAttribute("aria-pressed", String(p2[0] === view));
+      b.onclick = function () {
+        view = p2[0];
+        zoom = trees[view];
+        [].forEach.call(ctl.querySelectorAll("button[data-view]"), function (x) {
+          x.setAttribute("aria-pressed", String(x === b));
+        });
+        draw();
+      };
+      b.setAttribute("data-view", p2[0]);
+      ctl.appendChild(b);
+    });
+    ctl.appendChild(el("span", "sep", "&nbsp;"));
     Object.keys(METRICS).forEach(function (k) {
       var b = el("button", "btn", METRICS[k].label);
       b.setAttribute("aria-pressed", String(k === metric));
@@ -91,6 +182,8 @@
 
     var tip = el("div", "tip"); tip.style.display = "none"; document.body.appendChild(tip);
 
+    function reset() { zoom = trees[view]; draw(); }
+
     function path(node, target, acc) {
       acc = acc || [];
       if (node === target) return acc.concat([node]);
@@ -103,6 +196,7 @@
 
     function draw() {
       var W = flame.clientWidth || 900, rows = [];
+      document.getElementById("flamesub").innerHTML = VIEWS[view];
       var total = zoom.total[metric] || 1;
       (function lay(n, depth, x, w) {
         rows.push({ n: n, d: depth, x: x, w: w });
@@ -122,9 +216,17 @@
         var d = el("div", "fr");
         d.style.left = r.x + "px"; d.style.width = Math.max(1, r.w - 1) + "px";
         d.style.top = r.d * 21 + "px"; d.style.background = color(r.n);
-        var share = r.n.total[metric] / (profile.tree.total[metric] || 1);
+        var share = r.n.total[metric] / (trees[view].total[metric] || 1);
         if (r.w > 42) d.textContent = r.n.name + " (" + METRICS[metric].fmt(r.n.total[metric]) + ")";
         if (q) { if (r.n.name.toLowerCase().indexOf(q) >= 0) d.classList.add("hit"); else d.classList.add("dim"); }
+        d.tabIndex = 0;
+        d.setAttribute("role", "button");
+        d.setAttribute("aria-label", r.n.name + ", " + METRICS[metric].fmt(r.n.total[metric]) +
+          ", " + pct(share) + " of run. Enter to zoom in, Escape to reset.");
+        d.onkeydown = function (ev) {
+          if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); zoom = r.n; draw(); }
+          else if (ev.key === "Escape" || ev.key === "Backspace") { ev.preventDefault(); reset(); }
+        };
         d.onmousemove = function (ev) {
           tip.style.display = "block";
           tip.style.left = Math.min(ev.clientX + 14, global.innerWidth - 392) + "px";
@@ -134,6 +236,7 @@
             "<span class='row'>" + esc(r.n.kind) + (mt.model ? " &middot; " + esc(mt.model) : "") + "</span><br>" +
             "<span class='row'>total " + METRICS[metric].fmt(r.n.total[metric]) + " &middot; " + pct(share) + " of run</span><br>" +
             "<span class='row'>self " + METRICS[metric].fmt(r.n.self[metric]) + " &middot; " + r.n.children.length + " children</span>" +
+            (r.n.sites > 1 ? "<br><span class='row'>" + r.n.sites + " call sites merged</span>" : "") +
             (mt.billed ? "<br><span class='row'>billed " + mt.billed + "x, up to " + mt.copies + " copies in one request, " + kb(mt.bytes) + " each</span>" : "");
         };
         d.onmouseleave = function () { tip.style.display = "none"; };
@@ -141,7 +244,7 @@
         flame.appendChild(d);
       });
 
-      var p = path(profile.tree, zoom) || [zoom];
+      var p = path(trees[view], zoom) || [zoom];
       crumb.innerHTML = "";
       p.forEach(function (n, i) {
         if (i) crumb.appendChild(document.createTextNode(" / "));
@@ -149,7 +252,12 @@
         a.onclick = function () { zoom = n; draw(); };
         crumb.appendChild(a);
       });
-      if (zoom !== profile.tree) crumb.appendChild(document.createTextNode("  (click a frame to zoom)"));
+      if (zoom !== trees[view]) {
+        crumb.appendChild(document.createTextNode("  "));
+        var r0 = el("a", "", "reset");
+        r0.onclick = reset;
+        crumb.appendChild(r0);
+      }
     }
 
     setTimeout(draw, 0);
@@ -196,7 +304,7 @@
     if (breaks.length) {
       var ul = el("div", "note", "<b>Invalidations</b>");
       var tbl = el("table");
-      tbl.innerHTML = "<tr><th>call</th><th>broke at</th><th>first changed block</th><th class='num'>re-cached</th><th class='num'>cost of the miss</th></tr>";
+      tbl.innerHTML = "<tr><th>call</th><th>broke at</th><th>first changed block</th><th class='num'>re-cached</th><th class='num'>cost of that call</th></tr>";
       breaks.forEach(function (s) {
         var row = el("tr");
         row.innerHTML = "<td class='name'>" + esc(s.label) + "</td><td class='num'>block " + s.broke.at + " / " + s.broke.of + "</td>" +

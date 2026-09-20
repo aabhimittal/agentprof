@@ -91,3 +91,20 @@ td.name { font-family: var(--mono); font-size: 12px; max-width: 380px; overflow:
 .note code { font-family: var(--mono); }
 a { color: var(--accent); }
 @media (max-width: 640px) { .wrap { padding: 16px; } .stat .v { font-size: 19px; } }
+
+/* findings */
+.findings { display: grid; gap: 9px; }
+.finding { border: 1px solid var(--line); border-left-width: 3px; border-radius: 9px; padding: 9px 12px; background: var(--bg); }
+.finding.high { border-left-color: var(--accent); }
+.finding.medium { border-left-color: var(--warn); }
+.finding.info { border-left-color: var(--muted); }
+.fhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.fhead b { font-size: 14px; }
+.sev { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding: 1px 6px; border-radius: 999px;
+       border: 1px solid var(--line); color: var(--muted); }
+.finding.high .sev { color: var(--accent); border-color: var(--accent); }
+.finding.medium .sev { color: var(--warn); border-color: var(--warn); }
+.impact { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+.fbody { font-size: 13px; color: var(--muted); margin-top: 3px; max-width: 95ch; }
+.fr:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.sep { width: 8px; display: inline-block; }

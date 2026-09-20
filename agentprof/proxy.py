@@ -12,6 +12,7 @@ contains your prompt text.
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -31,6 +32,9 @@ class Recorder(object):
         self.n = 0
         self.tools = {}       # tool_use_id -> event id
         self.last_llm = None
+        # ThreadingHTTPServer runs concurrent requests; ids, the tool map and the
+        # output file are all shared, so every observation is serialised.
+        self.lock = threading.Lock()
 
     def _write(self, ev):
         with open(self.path, "a", encoding="utf-8") as fh:
@@ -68,6 +72,10 @@ class Recorder(object):
         return out, pending
 
     def observe(self, body, usage, t0, t1):
+        with self.lock:
+            return self._observe(body, usage, t0, t1)
+
+    def _observe(self, body, usage, t0, t1):
         self.n += 1
         eid = "call-%d" % self.n
         blocks, pending = self.blocks_of(body)
