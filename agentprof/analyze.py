@@ -14,6 +14,7 @@ That makes the flamegraph an attribution graph (like an allocation flamegraph),
 not a timeline: a node's width is the money the run spent *because of* it.
 Token counts per block are estimated at ~4 bytes/token; usage totals are exact.
 """
+from .findings import findings as _findings
 from .model import TOKENS_PER_BYTE
 from .pricing import rates
 
@@ -184,13 +185,6 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
 
     _rollup(root)
 
-    # "never referenced": a tool result whose label never shows up in any later
-    # assistant output or tool input. Heuristic, and labelled as one in the UI.
-    texts = []
-    for e in llms:
-        for b in e["blocks"]:
-            if b["kind"] in ("assistant", "user"):
-                texts.append(b["label"])
     tool_names = {t["id"]: t for t in tools}
     for h, w in waste.items():
         w["h"] = h
@@ -213,6 +207,9 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
 
     billed_total = totals["in"] + totals["cache_read"] + totals["cache_write"]
     resent_cost = sum(w["repeat_cost"] for w in waste.values())
+    dup_blocks = [w for w in waste.values() if w["dup_max"] > 1 and w["bytes"] >= 512]
+    sub_cost = sum(nodes[e["id"]]["total"]["cost"] for e in llms
+                   if e.get("parent") and nodes.get(e["parent"], {}).get("kind") == "tool")
     meta = {
         "source": source,
         "generated": None,
@@ -220,6 +217,11 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
                        min([e.get("t0") or 0 for e in llms + tools] or [0])),
         "models": sorted({e["model"] for e in llms}),
     }
+    totals_out = dict(
+        totals,
+        billed_in=billed_total,
+        hit_rate=(totals["cache_read"] / billed_total) if billed_total else 0.0,
+    )
     return {
         "version": 1,
         "meta": meta,
@@ -230,12 +232,29 @@ def analyze(events, source="", max_waste=18, min_bytes=256):
             resent_cost=resent_cost,
             resent_share=(resent_cost / totals["cost"]) if totals["cost"] else 0.0,
             tools=len(tools),
+            dup_blocks=len(dup_blocks),
+            dup_cost=sum(w["repeat_cost"] for w in dup_blocks),
+            sys_cost=sysnode["total"]["cost"],
+            sub_cost=sub_cost,
+            breaks=sum(1 for s in steps if s["broke"]),
         ),
         "tree": root,
         "steps": steps,
         "waste": repeated,
         "top_cost": sorted(notable, key=lambda w: -w["cost"])[:max_waste],
+        "labels": _by_label(waste.values()),
+        "findings": _findings(totals_out, steps, list(waste.values()),
+                              sysnode["total"]["cost"], sub_cost),
     }
+
+
+def _by_label(blocks, top=60):
+    """Attributed cost per context source, for run-to-run comparison."""
+    agg = {}
+    for b in blocks:
+        agg[b["label"]] = agg.get(b["label"], 0.0) + b["cost"]
+    pairs = sorted(agg.items(), key=lambda kv: -kv[1])[:top]
+    return dict(pairs)
 
 
 def _rollup(n):

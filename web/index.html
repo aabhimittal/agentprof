@@ -36,8 +36,9 @@
   <section class="hero">
     <div>
       <p>An agent task is 50&ndash;200 model calls, and most of every call is context you already paid for.
-      <strong>agentprof</strong> profiles a run and attributes the bill: which tool result was re-sent 80 times,
-      which prefix break cost you a cache, where the money actually went.</p>
+      <strong>agentprof</strong> attributes the bill and then tells you what to do about it: which tool result
+      was re-sent 80 times, which prefix break cost you a cache, which 8 KB file is sitting in your
+      context six times over.</p>
       <pre class="cmd"><b>agentprof report --open</b>          <span style="color:var(--muted)"># newest Claude Code session in this repo</span>
 <b>agentprof proxy --out run.ndjson</b>  <span style="color:var(--muted)"># record any agent on the Messages API</span>
 <b>agentprof report run.ndjson</b>       <span style="color:var(--muted)"># one self-contained HTML file</span>

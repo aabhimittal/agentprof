@@ -84,6 +84,7 @@ def main():
         [sys.executable, "-m", "agentprof", "summary", os.path.join(ROOT, "examples", "demo-session.jsonl")],
         cwd=ROOT, stderr=subprocess.DEVNULL).decode()
     body = "\n".join(l for l in summary.splitlines() if not l.startswith("run "))
+    body = body.replace("[high]", "<span class=a>[high]</span>").replace("[medium]", "<span class=c>[medium]</span>")
     body = body.replace("&", "&amp;").replace("<", "&lt;")
     for token in ("$0.8099", "39%", "92.7%"):
         body = body.replace(token, "<span class=a>%s</span>" % token)
@@ -94,11 +95,12 @@ def main():
     time.sleep(0.4)
     b, base = chrome(), "http://127.0.0.1:%d" % PORT
     print("shots:")
-    shoot(b, base + "/index.html", os.path.join(OUT, "hero.png"), 1340, 1080)
-    shoot(b, base + "/_shot.html?panels=0&stats=1&theme=dark", os.path.join(OUT, "flamegraph.png"), 1280, 330)
-    shoot(b, base + "/_shot.html?panels=1", os.path.join(OUT, "cache.png"), 1280, 400)
-    shoot(b, base + "/_shot.html?panels=2&theme=dark", os.path.join(OUT, "waste.png"), 1280, 500)
-    shoot(b, base + "/_term.html", os.path.join(OUT, "terminal.png"), 980, 430)
+    shoot(b, base + "/index.html", os.path.join(OUT, "hero.png"), 1340, 1220)
+    shoot(b, base + "/_shot.html?panels=0&stats=1", os.path.join(OUT, "findings.png"), 1280, 660)
+    shoot(b, base + "/_shot.html?panels=1&theme=dark", os.path.join(OUT, "flamegraph.png"), 1280, 340)
+    shoot(b, base + "/_shot.html?panels=2", os.path.join(OUT, "cache.png"), 1280, 400)
+    shoot(b, base + "/_shot.html?panels=3&theme=dark", os.path.join(OUT, "waste.png"), 1280, 470)
+    shoot(b, base + "/_term.html", os.path.join(OUT, "terminal.png"), 980, 620)
     srv.shutdown()
     for tmp in ("_shot.html", "_term.html"):
         os.remove(os.path.join(SITE, tmp))
