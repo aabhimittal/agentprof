@@ -4,6 +4,9 @@
 money went: which tool result got re-sent eighty times, which prefix break threw away your cache,
 and how much of the bill is context the model never needed twice.
 
+Works on Claude Code sessions, the Anthropic API, and any OpenAI-compatible endpoint — vLLM,
+Ollama, TGI, LiteLLM, OpenRouter, the Hugging Face router.
+
 Local-only. No backend, no account, no telemetry — one self-contained HTML file you can open,
 attach to a PR, or email.
 
@@ -23,6 +26,19 @@ the prefix, and you pay full price to rebuild it.
 Existing observability tools (Langfuse and friends) answer *what happened*. agentprof answers
 *what it cost you, and because of whom* — with no server to run.
 
+## Works with
+
+| Source | How | Cache signal |
+|---|---|---|
+| Claude Code sessions | `agentprof report` (auto-finds `~/.claude/projects/**/*.jsonl`) | explicit cache writes + reads |
+| Anthropic Messages API | `agentprof proxy` | explicit cache writes + reads |
+| vLLM, Ollama, TGI, llama.cpp | `agentprof proxy --upstream http://127.0.0.1:8000` | `cached_tokens` (reads only) |
+| LiteLLM, OpenRouter, Together, Groq, HF router | same, pointed at the provider | `cached_tokens` (reads only) |
+| Anything you already log | write request/response NDJSON, skip the proxy | whatever the response reports |
+
+Frameworks need no integration code — the OpenAI Agents SDK, LangChain, LlamaIndex, CrewAI, AutoGen
+and smolagents all honour `OPENAI_BASE_URL`. Recipes: [docs/RECIPES.md](docs/RECIPES.md).
+
 ## Quickstart
 
 ```bash
@@ -32,6 +48,15 @@ agentprof report --open                # profiles the newest Claude Code session
 agentprof summary                      # the same numbers, in the terminal
 agentprof export -o agentprof.json     # profile JSON for the web viewer
 agentprof compare before.json after.json   # did the change actually get cheaper?
+agentprof demo --list                  # bundled example runs, one per agent shape
+```
+
+Profiling an open-source agent is the same command with an upstream:
+
+```bash
+agentprof proxy --upstream http://127.0.0.1:8000 --out run.ndjson &
+OPENAI_BASE_URL=http://127.0.0.1:8788/v1 python your_agent.py
+agentprof report run.ndjson --pricing my-prices.json --open
 ```
 
 To profile *any* agent that talks to the Anthropic Messages API, put the recording proxy in front:
@@ -108,6 +133,30 @@ Every context block, fingerprinted and ranked by what its repeat billing cost:
 "Copies in one request" is the sharpest signal in the table: it means the same bytes are sitting in
 your context several times over, which no cache discount fixes.
 
+## Example gallery
+
+The [live demo](https://aabhimittal.github.io/agentprof/) carries one run per agent shape, so you can
+see what each finding looks like before pointing the tool at your own run. All are generated from
+[`agentprof/examples.py`](agentprof/examples.py) — synthetic, but internally consistent, and
+reproducible with `agentprof demo -e <name>`:
+
+| Example | What it shows |
+|---|---|
+| Coding agent fixing a test | nine re-reads of one file, a subagent, an auto-compaction that drops the cache |
+| RAG / research agent | every retrieved chunk carried forever; three byte-identical passages |
+| Support triage at volume | perfect context hygiene, and a 38 KB policy prompt that is still the whole bill |
+| Self-hosted Llama (vLLM) | an unpriced endpoint: exact tokens, zero invented dollars |
+| Multi-agent fan-out | four workers returning 14 KB each, carried by the orchestrator afterwards |
+| A run with nothing wrong | the control case — agentprof finds nothing, and says so |
+
+## Pricing, and what happens without it
+
+Only Anthropic's published rates ship with the tool. Any other model — your vLLM deployment, an
+OpenRouter route — is **unpriced**: token counts stay exact, cost reads zero rather than a guess, and
+every finding switches to token counts so the analysis still works. Supply rates with
+`--pricing my-prices.json`; format and a way to derive a self-hosted rate are in
+[docs/PRICING.md](docs/PRICING.md).
+
 ## How the numbers are computed
 
 - **Usage totals and prices are exact.** They come from the provider's `usage` fields and
@@ -137,18 +186,22 @@ duplicate copies within one request, and cache misses.
 
 | Source | How | Fidelity |
 |---|---|---|
-| Claude Code sessions | `agentprof report` (auto-finds `~/.claude/projects/**/*.jsonl`) | conversation is exact; system prompt + tool defs recovered as a residual |
-| Any Anthropic Messages API agent | `agentprof proxy` → NDJSON | exact request composition, real latency |
+| Claude Code sessions | `agentprof report` | conversation is exact; system prompt + tool defs recovered as a residual |
+| Anthropic or OpenAI-compatible API | `agentprof proxy` → NDJSON | exact request composition, real latency |
+| Captured request/response pairs | `agentprof report captured.jsonl` | exact composition; latency if you logged timestamps |
 | Anything else | emit the [NDJSON event format](agentprof/model.py) yourself | whatever you record |
 
-OpenAI-style logs are not supported yet. The normalized event model is small and provider-agnostic;
-a reader is ~120 lines (see [`agentprof/ingest/claude_code.py`](agentprof/ingest/claude_code.py)).
+The normalized event model is small and provider-agnostic; a reader is ~120 lines (see
+[`agentprof/ingest/openai_log.py`](agentprof/ingest/openai_log.py)).
 
 ## Honest limitations
 
-- **Cache attribution is provider-shaped.** It models Anthropic prefix caching. Providers that cache
-  differently (or change their billing fields) will need the model updated — this is the part of
-  agentprof most likely to break.
+- **Cache attribution is provider-shaped.** Two shapes are modelled: Anthropic's explicit
+  write/read classes, and the OpenAI-compatible `cached_tokens` (reads only, no write charge).
+  A provider that bills differently, or renames a usage field, needs the model updated — this is
+  still the part of agentprof most likely to break.
+- **The example gallery is synthetic.** Internally consistent and reproducible, but nobody's real
+  transcript. Point the tool at your own run before believing anything about *your* costs.
 - **Token estimates are estimates.** Ranking is reliable; a single block's dollar figure is not
   invoice-grade.
 - **Transcript mode cannot see what the transcript does not contain.** The system prompt and tool

@@ -46,6 +46,10 @@ def _label_for(name, inp):
         if key in inp and isinstance(inp[key], str):
             v = inp[key].strip().replace("\n", " ")
             return "%s(%s)" % (name, v[:60])
+    for key in sorted(inp):  # MCP and custom tools name their arguments freely
+        v = inp[key]
+        if isinstance(v, str) and v.strip() and len(v) <= 200:
+            return "%s(%s)" % (name, v.strip().replace("\n", " ")[:60])
     return name
 
 

@@ -1,7 +1,12 @@
-"""Recording proxy for the Anthropic Messages API.
+"""Recording proxy for the Anthropic Messages API and any OpenAI-compatible endpoint.
 
     agentprof proxy --out run.ndjson
     ANTHROPIC_BASE_URL=http://127.0.0.1:8788 python your_agent.py
+
+    # or an open-source stack - vLLM, Ollama, TGI, LiteLLM, OpenRouter, HF router
+    agentprof proxy --upstream http://127.0.0.1:8000 --out run.ndjson
+    OPENAI_BASE_URL=http://127.0.0.1:8788/v1 python your_agent.py
+
     agentprof report run.ndjson
 
 Unlike a transcript, the proxy sees the rendered request, so the system prompt
@@ -18,6 +23,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from . import fmt_openai
 from .model import block, llm_event, text_of, tool_event
 
 UPSTREAM = os.environ.get("ANTHROPIC_UPSTREAM", "https://api.anthropic.com")
@@ -31,6 +37,7 @@ class Recorder(object):
         self.path = path
         self.n = 0
         self.tools = {}       # tool_use_id -> event id
+        self.labels = {}      # tool_use_id -> human label
         self.last_llm = None
         # ThreadingHTTPServer runs concurrent requests; ids, the tool map and the
         # output file are all shared, so every observation is serialised.
@@ -71,14 +78,18 @@ class Recorder(object):
                     out.append(block(text_of([b]), msg.get("role", "user"), msg.get("role", "user") + " message", self.last_llm))
         return out, pending
 
-    def observe(self, body, usage, t0, t1):
+    def observe(self, body, usage, t0, t1, fmt="anthropic"):
         with self.lock:
-            return self._observe(body, usage, t0, t1)
+            return self._observe(body, usage, t0, t1, fmt)
 
-    def _observe(self, body, usage, t0, t1):
+    def _observe(self, body, usage, t0, t1, fmt="anthropic"):
         self.n += 1
         eid = "call-%d" % self.n
-        blocks, pending = self.blocks_of(body)
+        if fmt == "openai":
+            state = {"tools": self.tools, "labels": self.labels, "last_llm": self.last_llm}
+            blocks, pending = fmt_openai.blocks(body, state)
+        else:
+            blocks, pending = self.blocks_of(body)
         for tid, name, label in pending:
             self._write(tool_event(tid, self.last_llm, t0, t0, name, label, 0))
         self._write(llm_event(eid, None, t0, t1, body.get("model"), usage, blocks, "call %d" % self.n))
@@ -180,27 +191,47 @@ def make_handler(rec, verbose=True):
                 body = [raw]
             t1 = time.time()
 
-            if self.path.endswith("/messages") and self.command == "POST" and resp.status < 300:
+            fmt = None
+            if self.command == "POST" and resp.status < 300:
+                if self.path.endswith("/messages"):
+                    fmt = "anthropic"
+                elif self.path.endswith("/chat/completions"):
+                    fmt = "openai"
+            if fmt:
                 try:
                     reqbody = json.loads(payload.decode("utf-8"))
-                    usage = _usage_from_sse(body) if streaming else _usage_from(json.loads(b"".join(body).decode("utf-8")))
-                    eid = rec.observe(reqbody, usage, t0, t1)
+                    if fmt == "openai":
+                        usage = (fmt_openai.usage_from_sse(body) if streaming
+                                 else fmt_openai.usage(json.loads(b"".join(body).decode("utf-8"))))
+                    else:
+                        usage = (_usage_from_sse(body) if streaming
+                                 else _usage_from(json.loads(b"".join(body).decode("utf-8"))))
+                    eid = rec.observe(reqbody, usage, t0, t1, fmt)
                     if verbose:
                         sys.stderr.write("[agentprof] %s  in=%d cached=%d out=%d  %.1fs\n" % (
                             eid, usage["input"], usage["cache_read"], usage["output"], t1 - t0))
+                    if fmt == "openai" and streaming and not any(usage.values()):
+                        sys.stderr.write("[agentprof] streamed call carried no usage - set "
+                                         "stream_options={'include_usage': True}\n")
                 except Exception as e:
                     sys.stderr.write("[agentprof] could not record call: %s\n" % e)
 
     return Handler
 
 
-def serve(out, host="127.0.0.1", port=8788, verbose=True):
+def serve(out, host="127.0.0.1", port=8788, verbose=True, upstream=None):
+    global UPSTREAM
+    if upstream:
+        UPSTREAM = upstream
     rec = Recorder(out)
     srv = ThreadingHTTPServer((host, port), make_handler(rec, verbose))
     sys.stderr.write(
-        "[agentprof] recording to %s\n[agentprof] point your agent at:  "
-        "ANTHROPIC_BASE_URL=http://%s:%d\n[agentprof] ctrl-c to stop, then:  agentprof report %s\n"
-        % (out, host, port, out))
+        "[agentprof] recording to %s (upstream %s)\n"
+        "[agentprof] point your agent at one of:\n"
+        "              ANTHROPIC_BASE_URL=http://%s:%d\n"
+        "              OPENAI_BASE_URL=http://%s:%d/v1\n"
+        "[agentprof] ctrl-c to stop, then:  agentprof report %s\n"
+        % (out, UPSTREAM, host, port, host, port, out))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
