@@ -139,8 +139,9 @@ python3 tools/build_site.py     # -> ./site (index.html, core.js, core.css, demo
 python3 -m http.server -d site  # http://localhost:8000
 ```
 
-- **GitHub Pages** — `.github/workflows/pages.yml` builds and deploys on push to `main`, and
-  enables Pages on its first run.
+- **GitHub Pages** — `.github/workflows/pages.yml` builds and deploys on push to `main`. Pages has
+  to be switched on once first (Settings → Pages → Source: GitHub Actions); the workflow asks for it
+  via `enablement: true`, but `GITHUB_TOKEN` is usually refused that call.
 - **Vercel** — `vercel.json` is committed; import the repo, no configuration needed.
 
 Step-by-step, including what each target needs you to click once: [docs/DEPLOY.md](docs/DEPLOY.md).

@@ -7,12 +7,25 @@ repo cannot do for you.
 ## GitHub Pages — `https://aabhimittal.github.io/agentprof/`
 
 `.github/workflows/pages.yml` builds and deploys on every push to `main`, and can be re-run by hand
-from the Actions tab. It passes `enablement: true` to `actions/configure-pages`, so the first
-successful run turns Pages on (source: GitHub Actions) by itself — no settings change needed.
+from the Actions tab.
 
-If that first run still fails with *"Get Pages site failed"*, the repository is blocking the API
-call (private repo without Pages on the plan, or an organization policy). Enable it by hand under
-**Settings → Pages → Build and deployment → Source: GitHub Actions**, then re-run the workflow.
+**One setting is needed first.** The workflow passes `enablement: true` to `actions/configure-pages`,
+which tries to create the Pages site for you, but `GITHUB_TOKEN` is usually not allowed to do that:
+
+```
+Get Pages site failed. Error: Not Found
+Create Pages site failed. Error: Resource not accessible by integration
+```
+
+Either fix works, both are one click:
+
+- **Settings → Pages → Build and deployment → Source: GitHub Actions.** The site then exists and the
+  workflow stops trying to create it. This is the reliable option.
+- **Settings → Actions → General → Workflow permissions → Read and write permissions.** This raises
+  the ceiling on what the workflow's token may request, which can let `enablement: true` succeed.
+
+Then re-run the failed `pages` run from the Actions tab (or push to `main`); the deploy itself needs
+no further changes.
 
 ## Vercel — `https://agentprof.vercel.app`
 
