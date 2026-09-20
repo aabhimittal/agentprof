@@ -6,11 +6,13 @@ repo cannot do for you.
 
 ## GitHub Pages — `https://aabhimittal.github.io/agentprof/`
 
-1. Merge this branch to `main`.
-2. **Settings → Pages → Build and deployment → Source: GitHub Actions.** (Required once; the
-   workflow cannot enable Pages on its own.)
-3. `.github/workflows/pages.yml` then builds and deploys on every push to `main`, and can be
-   re-run by hand from the Actions tab.
+`.github/workflows/pages.yml` builds and deploys on every push to `main`, and can be re-run by hand
+from the Actions tab. It passes `enablement: true` to `actions/configure-pages`, so the first
+successful run turns Pages on (source: GitHub Actions) by itself — no settings change needed.
+
+If that first run still fails with *"Get Pages site failed"*, the repository is blocking the API
+call (private repo without Pages on the plan, or an organization policy). Enable it by hand under
+**Settings → Pages → Build and deployment → Source: GitHub Actions**, then re-run the workflow.
 
 ## Vercel — `https://agentprof.vercel.app`
 
